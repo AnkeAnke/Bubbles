@@ -26,13 +26,15 @@ var circles = File.ReadAllLines(circlesFile)
 
 Console.WriteLine("Parse CSV "+stopwatch.ElapsedMilliseconds);
 
+FastBitArray.perInstanceSize = circles.Length / sizeof(ulong) + 1;
+FastBitArray.array = new ulong[FastBitArray.perInstanceSize * numPixels];
 var circlesForPixel = new FastBitArray[numPixels];
 for (var i = 0; i < numPixels; i++)
-    circlesForPixel[i] = new FastBitArray(circles.Length);
+    circlesForPixel[i] = new FastBitArray();
 
 Console.WriteLine("Allocate "+stopwatch.ElapsedMilliseconds);
 
-for (var i = 0; i < circles.Length; i++)
+Parallel.For(0, circles.Length, i =>
 {
     var circle = circles[i];
     var minY = (int)Math.Floor((circle.y - circle.radius) * image.Height);
@@ -41,13 +43,13 @@ for (var i = 0; i < circles.Length; i++)
     if (maxY > image.Height) maxY = image.Height;
     for (var y = minY; y < maxY; y++)
     {
-        var fy = y / (float)image.Height; 
+        var fy = y / (float)image.Height;
 
         var minX = (int)Math.Floor((circle.x - circle.radius) * image.Width);
         if (minX < 0) minX = 0;
         var maxX = (int)Math.Ceiling((circle.x + circle.radius) * image.Width);
         if (maxX > image.Width) maxX = image.Width;
-        
+
         for (var x = minX; x < maxX; x++)
         {
             var fx = x / (float)image.Width;
@@ -56,7 +58,8 @@ for (var i = 0; i < circles.Length; i++)
                 circlesForPixel[x + image.Width * y][i] = true;
         }
     }
-}
+});
+
 Console.WriteLine("Get Circle coverage "+stopwatch.ElapsedMilliseconds);
 
 
@@ -105,11 +108,16 @@ struct Circle
 
 class FastBitArray
 {
-    private ulong[] array;
+    public static int perInstanceSize;
+    public static ulong[] array;
+    
+    static int curIndex;
+    private int index;
     private int hashCode;
-    public FastBitArray(int numBits)
+    public FastBitArray()
     {
-        array = new ulong[numBits / sizeof(ulong)+1];
+        index = curIndex;
+        curIndex += perInstanceSize;
     }
 
     public override int GetHashCode()
@@ -123,12 +131,9 @@ class FastBitArray
     {
         if (obj is FastBitArray fa)
         {
-            if (fa.array.Length != array.Length)
-                return false;
-
-            for (int i = 0; i < array.Length; i++)
+            for (int i = 0; i < perInstanceSize; i++)
             {
-                if (fa.array[i] != array[i])
+                if (array[i + index] != array[i + fa.index])
                     return false;
             }
 
@@ -140,19 +145,25 @@ class FastBitArray
 
     int RecalculateHashCode()
     {
-        return array.Aggregate(17, (current, t) => current * 31 + (int)t);
+        int hash = 17;
+        for (int i = 0; i < perInstanceSize; i++)
+        {
+            hash = hash * 31 + (int)array[i + index];
+        }
+        return hash;
+        
     }
     
     public bool this[int i]
     {
-        get => (array[i / sizeof(ulong)] >> (i % sizeof(ulong)) & 1) == 1;
+        //get => (array[index + i / sizeof(ulong)] >> (i % sizeof(ulong)) & 1) == 1;
         set
         {
             if (value)
-                array[i / sizeof(ulong)] |= (ulong)1 << i % sizeof(ulong);
+                array[index + i / sizeof(ulong)] |= (ulong)1 << i % sizeof(ulong);
             else
-                array[i / sizeof(ulong)] &= ~((ulong)1 << i % sizeof(ulong));
-            hashCode = 0;;
+                array[index + i / sizeof(ulong)] &= ~((ulong)1 << i % sizeof(ulong));
+            hashCode = 0;
         }
     }
 }
