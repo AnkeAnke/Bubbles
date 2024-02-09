@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -10,7 +11,7 @@ stopwatch.Start();
 var imageFile = args[0];
 var image = Image.Load<L8>(imageFile);
 var numPixels = image.Width * image.Height;
-var pixels = new L8[image.Width * image.Height];
+var pixels = new byte[image.Width * image.Height];
 image.CopyPixelDataTo(pixels);
 Console.WriteLine(stopwatch.ElapsedMilliseconds);
 
@@ -63,28 +64,28 @@ Parallel.For(0, circles.Length, i =>
 Console.WriteLine("Get Circle coverage "+stopwatch.ElapsedMilliseconds);
 
 
-var circleValues = new Dictionary<FastBitArray, (long numPixels, long sumColor)>();
-for (var y = 0; y < image.Height; y++)
+var circleValues = new ConcurrentDictionary<FastBitArray, (long numPixels, long sumColor)>();
+Parallel.For(0, image.Height, y =>
 {
     for (var x = 0; x < image.Width; x++)
     {
-        var val = circleValues.GetValueOrDefault(circlesForPixel[x + image.Width * y], (0,0));
-        val.numPixels++;
-        val.sumColor += pixels[x + image.Width * y].PackedValue;
-        circleValues[circlesForPixel[x + image.Width * y]] = val;
+        var color = pixels[x + image.Width * y];
+        circleValues.AddOrUpdate(circlesForPixel[x + image.Width * y], (1, color),
+            (_, tuple) => (tuple.numPixels + 1, tuple.sumColor + color));
     }
-}
+});
+
 Console.WriteLine("Get Circle color averages1 " + stopwatch.ElapsedMilliseconds);
 
 var circleAvgValues = circleValues.Select(kvp => (kvp.Key, (byte)(((kvp.Value.sumColor/kvp.Value.numPixels)+(kGreyScaleStep/2))/kGreyScaleStep*kGreyScaleStep))).ToDictionary();
 Console.WriteLine("Get Circle color averages2 " +stopwatch.ElapsedMilliseconds);
 
 var outPixels = new byte[image.Width * image.Height];
-for (var y = 0; y < image.Height; y++)
+Parallel.For(0, image.Height, y =>
 {
     for (var x = 0; x < image.Width; x++)
         outPixels[x + image.Width * y] = circleAvgValues[circlesForPixel[x + image.Width * y]];
-}
+});
 Console.WriteLine(stopwatch.ElapsedMilliseconds);
 
 using (Image<L8> outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
@@ -92,7 +93,19 @@ using (Image<L8> outImage = Image.LoadPixelData<L8>(outPixels, image.Width, imag
     // Save the grayscale image as a PNG file
     outImage.Save("output.png");
 }
+
+
 Console.WriteLine(stopwatch.ElapsedMilliseconds);
+
+var error = 0;
+
+for (int i = 0; i < outPixels.Length; i++)
+{
+    var srcPixel = pixels[i]+(kGreyScaleStep/2)/kGreyScaleStep*kGreyScaleStep;
+    var diff = Math.Abs(srcPixel - outPixels[i]);
+    error += diff;
+}
+Console.WriteLine($"Error: {(float)error/outPixels.Length}");
 
 float SqrDist(float x1, float x2, float y1, float y2)
 {
