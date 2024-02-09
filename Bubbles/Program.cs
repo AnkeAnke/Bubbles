@@ -1,12 +1,18 @@
-﻿using System.Collections;
+﻿using System.Diagnostics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
+const int kNumGreyScales = 5;
+int kGreyScaleStep = 255 / kNumGreyScales;
+
+var stopwatch = new Stopwatch();
+stopwatch.Start();
 var imageFile = args[0];
 var image = Image.Load<L8>(imageFile);
 var numPixels = image.Width * image.Height;
 var pixels = new L8[image.Width * image.Height];
 image.CopyPixelDataTo(pixels);
+Console.WriteLine(stopwatch.ElapsedMilliseconds);
 
 var circlesFile = args[1];
 var circles = File.ReadAllLines(circlesFile)
@@ -18,27 +24,43 @@ var circles = File.ReadAllLines(circlesFile)
         radius = float.Parse(strings[2])
     }).ToArray();
 
-var circlesForPixel = new BitArray[numPixels];
-for (var i = 0; i < numPixels; i++)
-    circlesForPixel[i] = new BitArray(circles.Length);
+Console.WriteLine("Parse CSV "+stopwatch.ElapsedMilliseconds);
 
-for (var y = 0; y < image.Height; y++)
+var circlesForPixel = new FastBitArray[numPixels];
+for (var i = 0; i < numPixels; i++)
+    circlesForPixel[i] = new FastBitArray(circles.Length);
+
+Console.WriteLine("Allocate "+stopwatch.ElapsedMilliseconds);
+
+for (var i = 0; i < circles.Length; i++)
 {
-    var fy = y / (float)image.Height; 
-    for (var x = 0; x < image.Width; x++)
+    var circle = circles[i];
+    var minY = (int)Math.Floor((circle.y - circle.radius) * image.Height);
+    if (minY < 0) minY = 0;
+    var maxY = (int)Math.Ceiling((circle.y + circle.radius) * image.Height);
+    if (maxY > image.Height) maxY = image.Height;
+    for (var y = minY; y < maxY; y++)
     {
-        var fx = x / (float)image.Width;
-        for (var i = 0; i < circles.Length; i++)
+        var fy = y / (float)image.Height; 
+
+        var minX = (int)Math.Floor((circle.x - circle.radius) * image.Width);
+        if (minX < 0) minX = 0;
+        var maxX = (int)Math.Ceiling((circle.x + circle.radius) * image.Width);
+        if (maxX > image.Width) maxX = image.Width;
+        
+        for (var x = minX; x < maxX; x++)
         {
-            var circle = circles[i];
+            var fx = x / (float)image.Width;
 
             if (SqrDist(fx, circle.x, fy, circle.y) <= circle.radius * circle.radius)
                 circlesForPixel[x + image.Width * y][i] = true;
         }
     }
 }
+Console.WriteLine("Get Circle coverage "+stopwatch.ElapsedMilliseconds);
 
-var circleValues = new Dictionary<BitArray, (long numPixels, long sumColor)>(new BitArrayComparer());
+
+var circleValues = new Dictionary<FastBitArray, (long numPixels, long sumColor)>();
 for (var y = 0; y < image.Height; y++)
 {
     for (var x = 0; x < image.Width; x++)
@@ -49,8 +71,10 @@ for (var y = 0; y < image.Height; y++)
         circleValues[circlesForPixel[x + image.Width * y]] = val;
     }
 }
+Console.WriteLine("Get Circle color averages1 " + stopwatch.ElapsedMilliseconds);
 
-var circleAvgValues = circleValues.Select(kvp => (kvp.Key, (byte)(kvp.Value.sumColor/kvp.Value.numPixels))).ToDictionary(new BitArrayComparer());
+var circleAvgValues = circleValues.Select(kvp => (kvp.Key, (byte)(((kvp.Value.sumColor/kvp.Value.numPixels)+(kGreyScaleStep/2))/kGreyScaleStep*kGreyScaleStep))).ToDictionary();
+Console.WriteLine("Get Circle color averages2 " +stopwatch.ElapsedMilliseconds);
 
 var outPixels = new byte[image.Width * image.Height];
 for (var y = 0; y < image.Height; y++)
@@ -58,16 +82,14 @@ for (var y = 0; y < image.Height; y++)
     for (var x = 0; x < image.Width; x++)
         outPixels[x + image.Width * y] = circleAvgValues[circlesForPixel[x + image.Width * y]];
 }
+Console.WriteLine(stopwatch.ElapsedMilliseconds);
 
 using (Image<L8> outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
 {
     // Save the grayscale image as a PNG file
     outImage.Save("output.png");
 }
-
-
-
-Console.WriteLine("Hello, World!");
+Console.WriteLine(stopwatch.ElapsedMilliseconds);
 
 float SqrDist(float x1, float x2, float y1, float y2)
 {
@@ -81,29 +103,56 @@ struct Circle
     public float x, y, radius;
 }
 
-class BitArrayComparer : IEqualityComparer<BitArray>
+class FastBitArray
 {
-    public bool Equals(BitArray x, BitArray y)
+    private ulong[] array;
+    private int hashCode;
+    public FastBitArray(int numBits)
     {
-        if (x.Length != y.Length)
-            return false;
-
-        for (int i = 0; i < x.Length; i++)
-        {
-            if (x[i] != y[i])
-                return false;
-        }
-
-        return true;
+        array = new ulong[numBits / sizeof(ulong)+1];
     }
 
-    public int GetHashCode(BitArray obj)
+    public override int GetHashCode()
     {
-        int hash = 17;
-        for (int i = 0; i < obj.Length; i++)
+        if (hashCode == 0)
+            hashCode = RecalculateHashCode();
+        return hashCode;
+    }
+
+    public override bool Equals(object? obj)
+    {
+        if (obj is FastBitArray fa)
         {
-            hash = hash * 31 + (obj[i] ? 1 : 0);
+            if (fa.array.Length != array.Length)
+                return false;
+
+            for (int i = 0; i < array.Length; i++)
+            {
+                if (fa.array[i] != array[i])
+                    return false;
+            }
+
+            return true;
         }
-        return hash;
+
+        return false;
+    }
+
+    int RecalculateHashCode()
+    {
+        return array.Aggregate(17, (current, t) => current * 31 + (int)t);
+    }
+    
+    public bool this[int i]
+    {
+        get => (array[i / sizeof(ulong)] >> (i % sizeof(ulong)) & 1) == 1;
+        set
+        {
+            if (value)
+                array[i / sizeof(ulong)] |= (ulong)1 << i % sizeof(ulong);
+            else
+                array[i / sizeof(ulong)] &= ~((ulong)1 << i % sizeof(ulong));
+            hashCode = 0;;
+        }
     }
 }
