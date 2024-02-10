@@ -185,6 +185,26 @@ static class CircleEvaluator
             }
         });
 
+        var histogram = new SortedDictionary<long, int>();
+        long numAreas = 0;
+        foreach (var np in circleValues.Values.Select(tuple => tuple.numPixels))
+        {
+            histogram.TryAdd(np, 0);
+            histogram[np]++;
+            numAreas++;
+        }
+
+        int numAreasCounted = 0;
+        foreach (var kvp in histogram)
+        {
+            if (numAreasCounted < numAreas * 0.1f && numAreasCounted + kvp.Value > numAreas * 0.1f)
+                Console.WriteLine($"10th percentile: {kvp.Key} pixels");
+            if (numAreasCounted < numAreas * 0.5f && numAreasCounted + kvp.Value > numAreas * 0.5f)
+                Console.WriteLine($"50th percentile: {kvp.Key} pixels");
+            numAreasCounted += kvp.Value;
+            //Console.WriteLine($"{kvp.Key} pixels: {kvp.Value}");
+        }
+        
         var dictionary = circleValues.Select(kvp => (kvp.Key,
             (byte)(((kvp.Value.sumColor / kvp.Value.numPixels) + (greyScaleStep / 2)) / greyScaleStep *
                    greyScaleStep))).ToDictionary();
