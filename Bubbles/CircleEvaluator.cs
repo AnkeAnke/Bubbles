@@ -1,39 +1,59 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Bubbles;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
 static class CircleEvaluator
 {
-    public static void EvaluateCirclesForImage(string imageFie, string circlesFile, int greyScaleStep)
+    public static void EvaluateCirclesForImage(string imageFile, string circlesFile, int greyScaleStep)
     {
         var stopwatch = new Stopwatch();
         var stopwatch2 = new Stopwatch();
         stopwatch.Start();
         stopwatch2.Start();
 
-        var image = Image.Load<L8>(imageFie);
+        var image = Image.Load<L8>(imageFile);
         var pixels = new byte[image.Width * image.Height];
         image.CopyPixelDataTo(pixels);
 
-        var circles = LoadCirclesCSV(circlesFile);
+        //var circles = LoadCirclesCSV(circlesFile);
+
+        var circles = new List<Circle>();
+        GradientEval eval = new GradientEval(image.Width, image.Height, pixels);
+
+        while (circles.Count < 500)
+        {
+            var c = Circle.Random();
+            var rating = eval.RateCircle(c);
+            var dist = c.MinDistToOtherCircles(circles);
+            rating *= dist;
+            if (rating > 10)
+                circles.Add(c);
+        }
+        
+
+        //Circle
+        //circles = circles.Where(c => eval.RateCircle(c) > 1000).ToArray();
+        
+        Console.WriteLine(circles.Count);
 
         Console.WriteLine("Load files " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
-        var circlesForPixel = GetCirclesForEachPixel(circles, image);
+        var circlesForPixel = GetCirclesForEachPixel(circles.ToArray(), image);
 
-        Console.WriteLine("Get Circle coverage " + stopwatch.ElapsedMilliseconds);
+        //  Console.WriteLine("Get Circle coverage " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
         var circleAvgValues = GetCircleIntersectionColors(image, pixels, circlesForPixel, greyScaleStep);
 
-        Console.WriteLine("Get Circle color averages " + stopwatch.ElapsedMilliseconds);
+        //   Console.WriteLine("Get Circle color averages " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
         var outPixels = CreatePixelsFromCircleIntersectionColors(image, circleAvgValues, circlesForPixel);
 
-        Console.WriteLine("Create Pixel output " + stopwatch.ElapsedMilliseconds);
+        //   Console.WriteLine("Create Pixel output " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
         using (Image<L8> outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
@@ -42,11 +62,11 @@ static class CircleEvaluator
             outImage.Save("output.png");
         }
 
-        Console.WriteLine("Write output " +stopwatch.ElapsedMilliseconds);
+        Console.WriteLine("Write output " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
         CalculateError(outPixels, pixels, greyScaleStep);
-        
+
         Console.WriteLine("Calculate error " + stopwatch.ElapsedMilliseconds);
         Console.WriteLine("Total time " + stopwatch2.ElapsedMilliseconds);
     }
@@ -63,9 +83,8 @@ static class CircleEvaluator
 
     static FastBitArray[] GetCirclesForEachPixel(Circle[] circles, Image<L8> image)
     {
-        FastBitArray.perInstanceSize = circles.Length / sizeof(ulong) + 1;
         var numPixels = image.Width * image.Height;
-        FastBitArray.array = new ulong[FastBitArray.perInstanceSize * numPixels];
+        FastBitArray.Init(circles.Length / sizeof(ulong) + 1, numPixels);
         var fastBitArrays = new FastBitArray[numPixels];
         for (var i = 0; i < numPixels; i++)
             fastBitArrays[i] = new FastBitArray();
@@ -137,7 +156,7 @@ static class CircleEvaluator
         return outPixels1;
     }
 
-    static void CalculateError(byte[] newPixels, byte[] pixels, int greyScaleStep)
+    static float CalculateError(byte[] newPixels, byte[] pixels, int greyScaleStep)
     {
         var error = 0;
 
@@ -148,6 +167,51 @@ static class CircleEvaluator
             error += diff;
         }
 
-        Console.WriteLine($"Error: {(float)error / newPixels.Length}");
+        var result = (float)error / newPixels.Length;
+        Console.WriteLine($"Error: {result}");
+        return result;
     }
 }
+
+
+// Scratch
+
+
+/* int batchSize = 10;
+ var errors = new float[circles.Length / batchSize];
+ for (var i = 0; i < circles.Length; i += batchSize)
+ {
+     var newCircles = circles.Take(i).Concat(circles.Skip(i+batchSize)).ToArray();
+     Console.WriteLine(newCircles.Length);
+     var circlesForPixel = GetCirclesForEachPixel(newCircles, image);
+
+   //  Console.WriteLine("Get Circle coverage " + stopwatch.ElapsedMilliseconds);
+     stopwatch.Restart();
+
+     var circleAvgValues = GetCircleIntersectionColors(image, pixels, circlesForPixel, greyScaleStep);
+
+  //   Console.WriteLine("Get Circle color averages " + stopwatch.ElapsedMilliseconds);
+     stopwatch.Restart();
+
+     var outPixels = CreatePixelsFromCircleIntersectionColors(image, circleAvgValues, circlesForPixel);
+
+  //   Console.WriteLine("Create Pixel output " + stopwatch.ElapsedMilliseconds);
+     stopwatch.Restart();
+
+     errors[i/batchSize] = CalculateError(outPixels, pixels, greyScaleStep);
+
+     Console.WriteLine("Calculate error " + stopwatch.ElapsedMilliseconds);
+ }
+
+ var avgError = errors.Average();
+
+ var bestCircles = new List<Circle>();
+
+ for (var i = 0; i < errors.Length; i++)
+ {
+     if (errors[i] > avgError)
+     {
+         bestCircles.AddRange(circles.Skip(i*batchSize).Take(batchSize));
+     }
+
+ }*/

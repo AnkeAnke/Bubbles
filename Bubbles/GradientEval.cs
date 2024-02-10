@@ -43,13 +43,20 @@ public class GradientEval
         return sumGradientStrengths;
     }
 
+    private Vector2 LookupGradient(int x, int y)
+    {
+        if (x >= _width || y >= _height)
+            return Vector2.Zero;
+        return _gradients[Index(x, y)];
+    }
+    
     private Vector2 SampleGradient(Vector2 pos)
     {
         var x = (int)Math.Floor(pos.X);
         var y = (int)Math.Floor(pos.Y);
         return Vector2.Lerp(
-            Vector2.Lerp(_gradients[Index(x, y)], _gradients[Index(x + 1, y)], pos.X - x),
-            Vector2.Lerp(_gradients[Index(x, y + 1)], _gradients[Index(x + 1, y + 1)], pos.X - x),
+            Vector2.Lerp(LookupGradient(x, y), LookupGradient(x + 1, y), pos.X - x),
+            Vector2.Lerp(LookupGradient(x, y + 1), LookupGradient(x + 1, y + 1), pos.X - x),
             pos.Y - y);
     }
 }

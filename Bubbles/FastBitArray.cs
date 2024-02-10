@@ -1,9 +1,16 @@
 class FastBitArray
 {
-    public static int perInstanceSize;
-    public static ulong[] array;
+    public static void Init(int _perInstanceSize, int numInstances)
+    {
+        perInstanceSize = _perInstanceSize;
+        array = new ulong[FastBitArray.perInstanceSize * numInstances];
+        curIndex = 0;
+    }
     
+    static int perInstanceSize;
+    static ulong[] array;
     static int curIndex;
+    
     private int index;
     private int hashCode;
     public FastBitArray()
