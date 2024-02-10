@@ -26,10 +26,10 @@ static class CircleEvaluator
         var stopwatch3 = new Stopwatch();
         stopwatch3.Start();
 
-        const float kMinRating = 800;
+        const float kMinRating = 8;
         const float kMaxOverlap = 0.3f;
         const float kMinDist = 0.01f;
-        const float kMinTotalScore = 15;
+        const float kMinTotalScore = 0.15f;
         const float kMaxRadius = 0.1f;
         const float kMinRadius = 0.01f;
         while (true)
