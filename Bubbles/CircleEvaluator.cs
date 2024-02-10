@@ -7,6 +7,17 @@ using Svg;
 
 static class CircleEvaluator
 {
+    private static void WriteCSV(IEnumerable<Circle> circles, string path)
+    { 
+        File.WriteAllLines(path, circles.Select(c => $"{c.x},{c.y},{c.radius}"));
+    }
+   
+    private static List<List<Circle>> LoadAllCirclesFromFolder(string path)
+     {
+         var files = Directory.GetFiles(path, "*.csv");
+         return files.Select(f => LoadCirclesCSV(f).ToList()).ToList();
+     }
+
     public static void EvaluateCirclesForImage(string imageFile, string circlesFile, int greyScaleStep)
     {
         var stopwatch = new Stopwatch();
