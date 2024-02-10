@@ -53,7 +53,7 @@ internal static class CircleEvaluator
         Console.WriteLine("Load files " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
-        EvaluateCircles(greyScaleStep, circles, image, pixels, out var outPixels);
+        EvaluateCircles(greyScaleStep, circles, image, pixels, out var outPixels, out var _);
 
         stopwatch.Restart();
 
@@ -70,8 +70,42 @@ internal static class CircleEvaluator
         Console.WriteLine("Total time " + stopwatch2.ElapsedMilliseconds);
     }
 
+    public static void GenerateBaseImages(string imageFile, string circlesFile, int greyScaleStep, int numFiles)
+    {
+        Console.WriteLine("Generating initial generation");
+        var image = Image.Load<L8>(imageFile);
+        var pixels = new byte[image.Width * image.Height];
+        image.CopyPixelDataTo(pixels);
+
+
+        var circles = new List<Circle>();
+        var eval = new GradientEval(image.Width, image.Height, pixels);
+
+
+        for (var candidate = 0; candidate < numFiles; ++candidate)
+        {
+            circles.Clear();
+            GenerateCircles(circles, eval);
+            WriteCSV(circles, Path.GetDirectoryName(circlesFile) + $"Init{candidate}.csv");
+        }
+
+        // EvaluateCircles(greyScaleStep, circles, image, pixels, out var outPixels);
+
+        // using (var outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
+        // {
+        //     // Save the grayscale image as a PNG file
+        //     outImage.Save("output.png");
+        // }
+        //
+        // WriteSvg(circles, "circles.svg", "output.png");
+        //
+        // Console.WriteLine("Write output " + stopwatch.ElapsedMilliseconds);
+        //
+        // Console.WriteLine("Total time " + stopwatch2.ElapsedMilliseconds);
+    }
+
     public static float EvaluateCircles(int greyScaleStep, List<Circle> circles, Image<L8> image,
-        byte[] pixels, out byte[] outPixels)
+        byte[] pixels, out byte[] outPixels, out int numSegments)
     {
         var stopwatch = new Stopwatch();
         var circlesForPixel = GetCirclesForEachPixel(circles.ToArray(), image);
@@ -93,7 +127,8 @@ internal static class CircleEvaluator
 
         var error = CalculateError(outPixels, pixels, greyScaleStep);
         // Console.WriteLine("Calculate error " + stopwatch.ElapsedMilliseconds);
-        return error;
+        numSegments = circleAvgValues.Count();
+        return error + numSegments / 500.0f;
     }
 
     private static void GenerateCircles(List<Circle> circles, GradientEval eval)
@@ -146,7 +181,7 @@ internal static class CircleEvaluator
                 1 => Color.Red,
                 2 => Color.Green,
                 3 => Color.Blue,
-                _ => Color.Yellow,
+                _ => Color.Yellow
             });
             svgDocument.Children.Add(circle);
         }

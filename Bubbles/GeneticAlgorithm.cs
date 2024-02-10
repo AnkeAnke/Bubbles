@@ -16,7 +16,8 @@ public class GeneticAlgorithm
     private static readonly int NumCirclesRandomized = 10;
 
     // private static readonly int NumParentsSelected = 20;
-    private static readonly int NumParents = 3;
+    private static readonly int NumParentsMin = 2;
+    private static readonly int NumParentsMax = 4;
     private static readonly int NumElitesKept = 3;
 
     private static int MaxID;
@@ -35,7 +36,7 @@ public class GeneticAlgorithm
     public void OutputBestCandidate(string dir)
     {
         var error = CircleEvaluator.EvaluateCircles(_kGreyScaleStep, _currentGeneration[0].Circles.ToList(), image,
-            pixels, out var outPixels);
+            pixels, out var outPixels, out var _);
         Console.WriteLine($"Best error: {error}");
         using (var outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
         {
@@ -68,10 +69,14 @@ public class GeneticAlgorithm
             if (allCircles[c].Count != NumCirclesPerCandidate)
                 throw new Exception(
                     $"Not the expected amount of circles in {c}th file, {allCircles[c].Count} instead of the expected {NumCirclesPerCandidate}.");
-            _currentGeneration[c] = new Candidate { Circles = allCircles[c].ToArray(), Fitness = 0, ID = MaxID++ };
-            _currentGeneration[c].Fitness = 1.0f /
-                                            CircleEvaluator.EvaluateCircles(kGreyScaleStep, allCircles[c], image,
-                                                pixels, out var outPixels);
+            _currentGeneration[c] = new Candidate
+            {
+                Circles = allCircles[c].ToArray(), ID = MaxID++,
+                Fitness = 1.0f /
+                          CircleEvaluator.EvaluateCircles(kGreyScaleStep, allCircles[c], image,
+                              pixels, out var outPixels, out var numSegments),
+                NumSegments = numSegments
+            };
         }
 
         _currentGeneration.Candidates = _currentGeneration.Candidates.OrderByDescending(c => c.Fitness).ToArray();
@@ -83,13 +88,14 @@ public class GeneticAlgorithm
         for (var elite = 0; elite < NumElitesKept; ++elite)
         {
             nextGeneration[elite] = _currentGeneration[elite];
-            Console.WriteLine(
-                $"Elite {elite}: ID {_currentGeneration[elite].ID}, fitness {_currentGeneration[elite].Fitness}");
+            var currentElite = _currentGeneration[elite];
+            if (currentElite.NumParents == 0)
+                Console.WriteLine(
+                    $"Elite {elite}: ID {currentElite.ID}, fitness {currentElite.Fitness}, segments {currentElite.NumSegments}");
+            else
+                Console.WriteLine(
+                    $"Elite {elite}: ID [{currentElite.ID}], fitness {currentElite.Fitness}, parents {currentElite.NumParents}, segments {currentElite.NumSegments}, generation {(currentElite.ID - NumCandidatesPerGeneration) / (NumCandidatesPerGeneration - NumElitesKept) + 1}");
         }
-        //
-        // for (var elite = NumCandidatesPerGeneration - NumElitesKept; elite < NumCandidatesPerGeneration; ++elite)
-        //     Console.WriteLine(
-        //         $"Elite {elite}: ID {_currentGeneration[elite].ID}, fitness {_currentGeneration[elite].Fitness}");
 
         bestFitness = _currentGeneration[0].Fitness;
         Console.WriteLine($"Best ID: {_currentGeneration[0].ID}\n\tfitness {bestFitness}");
@@ -98,29 +104,34 @@ public class GeneticAlgorithm
         _currentGeneration.NormalizeFitness();
 
         for (var child = NumElitesKept; child < NumCandidatesPerGeneration; ++child)
-            nextGeneration.Candidates[child] = GenerateChildVoronoi();
-        // Console.WriteLine(1.0f / nextGeneration.Candidates[child].Fitness);
+        {
+            var progress = (float)(child - NumElitesKept) / (NumCandidatesPerGeneration - NumElitesKept);
+            nextGeneration.Candidates[child] =
+                GenerateChildVoronoi((int)(NumParentsMin * (1.0 - progress) + (NumParentsMax + 1) * progress));
+        }
+
         _currentGeneration = nextGeneration;
         _currentGeneration.Candidates = _currentGeneration.Candidates.OrderByDescending(c => c.Fitness).ToArray();
-        Console.WriteLine("Generation IDs:");
-        foreach (var candidate in _currentGeneration.Candidates) Console.Write($"{candidate.ID} ");
+        // Console.WriteLine("Generation IDs:");
+        // foreach (var candidate in _currentGeneration.Candidates)
+        //     Console.Write($"{candidate.ID} ({candidate.NumParents})");
     }
 
-    private Candidate GenerateChildRandomSelection()
+    private Candidate GenerateChildRandomSelection(int numParents)
     {
         var parents = new List<int>
         {
-            Capacity = NumParents
+            Capacity = numParents
         };
 
-        while (parents.Count < NumParents)
+        while (parents.Count < numParents)
         {
             var nextParent = _currentGeneration.SelectParent();
             if (!parents.Contains(nextParent)) parents.Add(nextParent);
         }
 
         // Generate an ordered sequence of integers
-        var keptCircleIndices = Enumerable.Range(0, NumParents * NumCirclesPerCandidate).OrderBy(_ => random.Next())
+        var keptCircleIndices = Enumerable.Range(0, numParents * NumCirclesPerCandidate).OrderBy(_ => random.Next())
             .Take(NumCirclesPerCandidate - NumCirclesRandomized);
 
         var selectedCircles = keptCircleIndices
@@ -146,33 +157,35 @@ public class GeneticAlgorithm
             ID = MaxID++,
             Fitness = 1.0f /
                       CircleEvaluator.EvaluateCircles(_kGreyScaleStep, allCircles.ToList(), image,
-                          pixels, out var outPixels)
+                          pixels, out var outPixels, out var _),
+            NumParents = numParents
         };
     }
 
-    private Candidate GenerateChildVoronoi()
+    private Candidate GenerateChildVoronoi(int numParents)
     {
+        // Console.WriteLine($"Num parents: {numParents}");
         var parents = new List<int>
         {
-            Capacity = NumParents
+            Capacity = numParents
         };
 
-        while (parents.Count < NumParents)
+        while (parents.Count < numParents)
         {
             var nextParent = _currentGeneration.SelectParent();
             if (!parents.Contains(nextParent)) parents.Add(nextParent);
         }
 
-        var parentCenters = Enumerable.Range(0, NumParents)
+        var parentCenters = Enumerable.Range(0, numParents)
             .Select(_ => new Vector2((float)random.NextDouble(), (float)random.NextDouble())).ToList();
 
-        var allCirclesByDistance = Enumerable.Range(0, NumParents).SelectMany(p => _currentGeneration[parents[p]]
+        var allCirclesByDistance = Enumerable.Range(0, numParents).SelectMany(p => _currentGeneration[parents[p]]
             .Circles.Select(c => c with { color = p + 1 }).Where(
                 c =>
                 {
                     var center = new Vector2(c.x, c.y);
                     var parentDist = Vector2.Distance(center, parentCenters[p]);
-                    for (var pC = 0; pC < NumParents; ++pC)
+                    for (var pC = 0; pC < numParents; ++pC)
                         if (pC != p && Vector2.Distance(center, parentCenters[pC]) < parentDist)
                             return false;
                     return true;
@@ -206,7 +219,9 @@ public class GeneticAlgorithm
             ID = MaxID++,
             Fitness = 1.0f /
                       CircleEvaluator.EvaluateCircles(_kGreyScaleStep, allCircles.ToList(), image,
-                          pixels, out var outPixels)
+                          pixels, out var outPixels, out var numSegments),
+            NumParents = numParents,
+            NumSegments = numSegments
         };
     }
 
@@ -215,6 +230,7 @@ public class GeneticAlgorithm
         public Circle[] Circles;
         public float Fitness;
         public int ID;
+        public int NumParents, NumSegments;
 
 
         public class FitnessComparer : IComparer<Candidate>
