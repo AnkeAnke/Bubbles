@@ -1,5 +1,4 @@
 ﻿using System.Numerics;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Bubbles;
 
@@ -35,7 +34,8 @@ public class GradientEval
         {
             var radiusVec = new Vector2((float)Math.Sin((double)s / NumSamples * Math.PI * 2),
                 (float)Math.Cos((float)s / NumSamples * Math.PI * 2));
-            var samplePos = new Vector2(_width * (circle.x + radiusVec.X * circle.radius), _height * (circle.y + radiusVec.Y * circle.radius));
+            var samplePos = new Vector2(_width * (circle.x + radiusVec.X * circle.radius),
+                _height * (circle.y + radiusVec.Y * circle.radius));
             var gradientStrengthAcrossBorder = Vector2.Dot(SampleGradient(samplePos), radiusVec);
             sumGradientStrengths += Math.Abs(gradientStrengthAcrossBorder);
         }
@@ -45,11 +45,11 @@ public class GradientEval
 
     private Vector2 LookupGradient(int x, int y)
     {
-        if (x >= _width || y >= _height)
+        if (x >= _width || y >= _height || x < 0 || y < 0)
             return Vector2.Zero;
         return _gradients[Index(x, y)];
     }
-    
+
     private Vector2 SampleGradient(Vector2 pos)
     {
         var x = (int)Math.Floor(pos.X);
@@ -58,5 +58,26 @@ public class GradientEval
             Vector2.Lerp(LookupGradient(x, y), LookupGradient(x + 1, y), pos.X - x),
             Vector2.Lerp(LookupGradient(x, y + 1), LookupGradient(x + 1, y + 1), pos.X - x),
             pos.Y - y);
+    }
+
+    private Vector3 EstimateCircleParamGradient(Circle circle)
+    {
+        return new Vector3(
+            (RateCircle(circle with { x = circle.x + 1.0f / _width }) -
+             RateCircle(circle with { x = circle.x - 1.0f / _width })) * 0.5f / _width,
+            (RateCircle(circle with { y = circle.y + 1.0f / _height }) -
+             RateCircle(circle with { y = circle.y - 1.0f / _height })) * 0.5f / _height,
+            RateCircle(circle with { radius = circle.radius + 1.0f / _height }) -
+            RateCircle(circle with { radius = circle.radius - 1.0f / _height })) * 0.5f / _height;
+    }
+
+    public void OptimizeCircles(List<Circle> circles, int numSteps, float stepSize)
+    {
+        for (var c = 0; c < circles.Count; ++c)
+        for (var s = 0; s < numSteps; ++s)
+        {
+            var grad = EstimateCircleParamGradient(circles[c]);
+            circles[c] = circles[c].Add(grad * stepSize);
+        }
     }
 }

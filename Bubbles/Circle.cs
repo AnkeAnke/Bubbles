@@ -1,8 +1,9 @@
+using System.Numerics;
+
 public struct Circle
 {
     public float x, y, radius;
-
-    static Random random = new ();
+    private static readonly Random random = new(42);
 
     public float MinDistToOtherCircles(IEnumerable<Circle> otherCircles)
     {
@@ -15,18 +16,26 @@ public struct Circle
         }
 
         return (float)Math.Sqrt(minDist);
-        
-        float Sqr(float x) => x * x;
+
+        float Sqr(float x)
+        {
+            return x * x;
+        }
     }
 
     public static Circle Random()
     {
         var r = (float)random.NextDouble() * 0.15f;
-        return new()
+        return new Circle
         {
             radius = r,
-            x = r + (float)random.NextDouble() * (1 - 2*r),
-            y = r + (float)random.NextDouble() * (1 - 2*r)
+            x = r + (float)random.NextDouble() * (1 - 2 * r),
+            y = r + (float)random.NextDouble() * (1 - 2 * r)
         };
+    }
+
+    public Circle Add(Vector3 offset)
+    {
+        return new Circle { x = x + offset.X, y = y + offset.Y, radius = radius + offset.Z };
     }
 }
