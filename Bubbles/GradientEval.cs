@@ -9,7 +9,7 @@ public class GradientEval
     private readonly Vector2[] _gradients;
     private readonly int _width, _height;
 
-    public GradientEval(int width, int height, L8[] pixels)
+    public GradientEval(int width, int height, byte[] pixels)
     {
         _width = width;
         _height = height;
@@ -19,8 +19,8 @@ public class GradientEval
         for (var y = 1; y < height - 1; ++y)
         for (var x = 1; x < width - 1; ++x)
             _gradients[x + y * width] =
-                new Vector2((pixels[Index(x + 1, y)].PackedValue - pixels[Index(x - 1, y)].PackedValue) * 0.5f,
-                    (pixels[Index(x, y + 1)].PackedValue - pixels[Index(x, y - 1)].PackedValue) * 0.5f);
+                new Vector2((pixels[Index(x + 1, y)] - pixels[Index(x - 1, y)]) * 0.5f,
+                    (pixels[Index(x, y + 1)] - pixels[Index(x, y - 1)]) * 0.5f);
     }
 
     private int Index(int x, int y)
@@ -35,9 +35,9 @@ public class GradientEval
         {
             var radiusVec = new Vector2((float)Math.Sin((double)s / NumSamples * Math.PI * 2),
                 (float)Math.Cos((float)s / NumSamples * Math.PI * 2));
-            var samplePos = new Vector2(circle.x + radiusVec.X * circle.radius, circle.y + radiusVec.Y * circle.radius);
+            var samplePos = new Vector2(_width * (circle.x + radiusVec.X * circle.radius), _height * (circle.y + radiusVec.Y * circle.radius));
             var gradientStrengthAcrossBorder = Vector2.Dot(SampleGradient(samplePos), radiusVec);
-            sumGradientStrengths += gradientStrengthAcrossBorder;
+            sumGradientStrengths += Math.Abs(gradientStrengthAcrossBorder);
         }
 
         return sumGradientStrengths;
