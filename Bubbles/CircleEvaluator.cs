@@ -4,19 +4,22 @@ using Bubbles;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using Svg;
+using Color = System.Drawing.Color;
 
-static class CircleEvaluator
+internal static class CircleEvaluator
 {
-    private static void WriteCSV(IEnumerable<Circle> circles, string path)
-    { 
+    public static void WriteCSV(IEnumerable<Circle> circles, string path)
+    {
         File.WriteAllLines(path, circles.Select(c => $"{c.x},{c.y},{c.radius}"));
+        Console.WriteLine($"Wrote csv to {path}");
     }
-   
-    private static List<List<Circle>> LoadAllCirclesFromFolder(string path)
-     {
-         var files = Directory.GetFiles(path, "*.csv");
-         return files.Select(f => LoadCirclesCSV(f).ToList()).ToList();
-     }
+
+    public static List<List<Circle>> LoadAllCirclesFromFolder(string path)
+    {
+        var files = Directory.GetFiles(path, "*.csv");
+        return files.Select(f => LoadCirclesCSV(f).ToList()).ToList();
+    }
+
 
     public static void EvaluateCirclesForImage(string imageFile, string circlesFile, int greyScaleStep)
     {
@@ -32,58 +35,29 @@ static class CircleEvaluator
         //var circles = LoadCirclesCSV(circlesFile);
 
         var circles = new List<Circle>();
-        GradientEval eval = new GradientEval(image.Width, image.Height, pixels);
+        var eval = new GradientEval(image.Width, image.Height, pixels);
 
-        var stopwatch3 = new Stopwatch();
-        stopwatch3.Start();
 
-        const float kMinRating = 8;
-        const float kMaxOverlap = 0.3f;
-        const float kMinDist = 0.01f;
-        const float kMinTotalScore = 0.15f;
-        const float kMaxRadius = 0.1f;
-        const float kMinRadius = 0.01f;
-        while (true)
-        {
-            var c = Circle.Random(kMinRadius, kMaxRadius);
-            var rating = eval.RateCircle(c);
-            var overlap = c.MaxOverlapWithOtherCircles(circles);
-            var dist = c.MinDistFromOtherCircles(circles);
-            if (rating > kMinRating
-                && overlap < kMaxOverlap
-                && dist > kMinDist 
-                && rating * (1.0f - overlap) * dist > kMinTotalScore)
-                circles.Add(c);
-            
-            if (stopwatch3.ElapsedMilliseconds > 5000)
-                break;
-        }
-        
+        // for (var candidate = 0; candidate < 50; ++candidate)
+        // {
+        //     circles.Clear();
+        GenerateCircles(circles, eval);
+        //     WriteCSV(circles, Path.GetDirectoryName(circlesFile) + $"Init{candidate}.csv");
+        // }
 
         //Circle
         //circles = circles.Where(c => eval.RateCircle(c) > 1000).ToArray();
-        
+
         Console.WriteLine(circles.Count);
-        
+
         Console.WriteLine("Load files " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
-        var circlesForPixel = GetCirclesForEachPixel(circles.ToArray(), image);
+        EvaluateCircles(greyScaleStep, circles, image, pixels, out var outPixels);
 
-        //  Console.WriteLine("Get Circle coverage " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
-        var circleAvgValues = GetCircleIntersectionColors(image, pixels, circlesForPixel, greyScaleStep);
-
-        //   Console.WriteLine("Get Circle color averages " + stopwatch.ElapsedMilliseconds);
-        stopwatch.Restart();
-
-        var outPixels = CreatePixelsFromCircleIntersectionColors(image, circleAvgValues, circlesForPixel);
-
-        //   Console.WriteLine("Create Pixel output " + stopwatch.ElapsedMilliseconds);
-        stopwatch.Restart();
-
-        using (Image<L8> outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
+        using (var outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
         {
             // Save the grayscale image as a PNG file
             outImage.Save("output.png");
@@ -92,18 +66,63 @@ static class CircleEvaluator
         WriteSvg(circles, "circles.svg", "output.png");
 
         Console.WriteLine("Write output " + stopwatch.ElapsedMilliseconds);
-        stopwatch.Restart();
 
-        CalculateError(outPixels, pixels, greyScaleStep);
-
-        Console.WriteLine("Calculate error " + stopwatch.ElapsedMilliseconds);
         Console.WriteLine("Total time " + stopwatch2.ElapsedMilliseconds);
     }
 
-    private static void WriteSvg(IEnumerable<Circle> circles, string pathName, string pngPath)
+    public static float EvaluateCircles(int greyScaleStep, List<Circle> circles, Image<L8> image,
+        byte[] pixels, out byte[] outPixels)
+    {
+        var stopwatch = new Stopwatch();
+        var circlesForPixel = GetCirclesForEachPixel(circles.ToArray(), image);
+
+        //  Console.WriteLine("Get Circle coverage " + stopwatch.ElapsedMilliseconds);
+        stopwatch.Restart();
+
+        var circleAvgValues = GetCircleIntersectionColors(image, pixels, circlesForPixel, greyScaleStep,
+            out var numPixels10thPercentile,
+            out var numPixels50thPercentile);
+
+        //   Console.WriteLine("Get Circle color averages " + stopwatch.ElapsedMilliseconds);
+        stopwatch.Restart();
+
+        outPixels = CreatePixelsFromCircleIntersectionColors(image, circleAvgValues, circlesForPixel);
+
+        //   Console.WriteLine("Create Pixel output " + stopwatch.ElapsedMilliseconds);
+        stopwatch.Restart();
+
+        var error = CalculateError(outPixels, pixels, greyScaleStep);
+        // Console.WriteLine("Calculate error " + stopwatch.ElapsedMilliseconds);
+        return error;
+    }
+
+    private static void GenerateCircles(List<Circle> circles, GradientEval eval)
+    {
+        const float kMinRating = 8;
+        const float kMaxOverlap = 0.3f;
+        const float kMinDist = 0.01f;
+        const float kMinTotalScore = 0.15f;
+        const float kMaxRadius = 0.1f;
+        const float kMinRadius = 0.01f;
+
+        while (circles.Count < 600)
+        {
+            var c = Circle.Random(kMinRadius, kMaxRadius);
+            var rating = eval.RateCircle(c);
+            var overlap = c.MaxOverlapWithOtherCircles(circles);
+            var dist = c.MinDistFromOtherCircles(circles);
+            if (rating > kMinRating
+                && overlap < kMaxOverlap
+                && dist > kMinDist
+                && rating * (1.0f - overlap) * dist > kMinTotalScore)
+                circles.Add(c);
+        }
+    }
+
+    public static void WriteSvg(IEnumerable<Circle> circles, string pathName, string pngPath)
     {
         var svgDocument = new SvgDocument();
-        
+
         svgDocument.Width = new SvgUnit(SvgUnitType.Pixel, 1024);
         svgDocument.Height = new SvgUnit(SvgUnitType.Pixel, 1024);
 
@@ -114,7 +133,7 @@ static class CircleEvaluator
         imageElement.Height = new SvgUnit(SvgUnitType.Percentage, 100);
         imageElement.Href = Path.GetFullPath(pngPath);
         svgDocument.Children.Add(imageElement);
-        
+
         foreach (var c in circles)
         {
             var circle = new SvgCircle();
@@ -122,24 +141,26 @@ static class CircleEvaluator
             circle.CenterY = new SvgUnit(SvgUnitType.Percentage, 100 * c.y);
             circle.Radius = new SvgUnit(SvgUnitType.Percentage, 100 * c.radius);
             circle.FillOpacity = 0;
-            circle.Stroke = new SvgColourServer(System.Drawing.Color.Blue);
-            svgDocument.Children.Add(circle); 
+            circle.Stroke = new SvgColourServer(Color.Blue);
+            svgDocument.Children.Add(circle);
         }
-        
+
         svgDocument.Write(pathName);
     }
 
-    static Circle[] LoadCirclesCSV(string filePath) =>
-        File.ReadAllLines(filePath)
+    private static Circle[] LoadCirclesCSV(string filePath)
+    {
+        return File.ReadAllLines(filePath)
             .Select(line => line.Split(","))
-            .Select(strings => new Circle()
+            .Select(strings => new Circle
             {
                 x = float.Parse(strings[0]),
                 y = float.Parse(strings[1]),
                 radius = float.Parse(strings[2])
             }).ToArray();
+    }
 
-    static FastBitArray[] GetCirclesForEachPixel(Circle[] circles, Image<L8> image)
+    private static FastBitArray[] GetCirclesForEachPixel(Circle[] circles, Image<L8> image)
     {
         var numPixels = image.Width * image.Height;
         FastBitArray.Init(circles.Length / sizeof(ulong) + 1, numPixels);
@@ -182,19 +203,16 @@ static class CircleEvaluator
         }
     }
 
-    static Dictionary<FastBitArray, byte> GetCircleIntersectionColors(Image<L8> image, byte[] bytes,
-        FastBitArray[] circlesForPixel, int greyScaleStep)
+    private static Dictionary<FastBitArray, byte> GetCircleIntersectionColors(Image<L8> image, byte[] bytes,
+        FastBitArray[] circlesForPixel, int greyScaleStep, out int numPixels10thPercentile,
+        out int numPixels50thPercentile)
     {
-        int zeroPatch = 1;
+        var zeroPatch = 1;
         for (var y = 0; y < image.Width; y++)
-        {
-            for (var x = 0; x < image.Width; x++)
-            {
-                if (circlesForPixel[x + image.Width * y].isZero && circlesForPixel[x + image.Width * y].zeroPatch == 0)
-                    FillZeroPatch(x, y, circlesForPixel, image, zeroPatch++);
-            }
-        }
-        
+        for (var x = 0; x < image.Width; x++)
+            if (circlesForPixel[x + image.Width * y].isZero && circlesForPixel[x + image.Width * y].zeroPatch == 0)
+                FillZeroPatch(x, y, circlesForPixel, image, zeroPatch++);
+
         var circleValues = new ConcurrentDictionary<FastBitArray, (long numPixels, long sumColor)>();
         Parallel.For(0, image.Height, y =>
         {
@@ -215,19 +233,23 @@ static class CircleEvaluator
             numAreas++;
         }
 
-        int numAreasCounted = 0;
+        var numAreasCounted = 0;
+        numPixels10thPercentile = 0;
+        numPixels50thPercentile = 0;
         foreach (var kvp in histogram)
         {
             if (numAreasCounted < numAreas * 0.1f && numAreasCounted + kvp.Value > numAreas * 0.1f)
-                Console.WriteLine($"10th percentile: {kvp.Key} pixels");
+                numPixels10thPercentile = (int)kvp.Key;
+            // Console.WriteLine($"10th percentile: {kvp.Key} pixels");
             if (numAreasCounted < numAreas * 0.5f && numAreasCounted + kvp.Value > numAreas * 0.5f)
-                Console.WriteLine($"50th percentile: {kvp.Key} pixels");
+                numPixels50thPercentile = (int)kvp.Key;
+            // Console.WriteLine($"50th percentile: {kvp.Key} pixels");
             numAreasCounted += kvp.Value;
             //Console.WriteLine($"{kvp.Key} pixels: {kvp.Value}");
         }
-        
+
         var dictionary = circleValues.Select(kvp => (kvp.Key,
-            (byte)(((kvp.Value.sumColor / kvp.Value.numPixels) + (greyScaleStep / 2)) / greyScaleStep *
+            (byte)((kvp.Value.sumColor / kvp.Value.numPixels + greyScaleStep / 2) / greyScaleStep *
                    greyScaleStep))).ToDictionary();
         return dictionary;
     }
@@ -244,7 +266,8 @@ static class CircleEvaluator
         FillZeroPatch(x, y - 1, circlesForPixel, image, zeroPatch);
     }
 
-    static byte[] CreatePixelsFromCircleIntersectionColors(Image<L8> image, Dictionary<FastBitArray, byte> circleAvgValues,
+    private static byte[] CreatePixelsFromCircleIntersectionColors(Image<L8> image,
+        Dictionary<FastBitArray, byte> circleAvgValues,
         FastBitArray[] fastBitArrays)
     {
         var outPixels1 = new byte[image.Width * image.Height];
@@ -256,19 +279,19 @@ static class CircleEvaluator
         return outPixels1;
     }
 
-    static float CalculateError(byte[] newPixels, byte[] pixels, int greyScaleStep)
+    private static float CalculateError(byte[] newPixels, byte[] pixels, int greyScaleStep)
     {
         var error = 0;
 
-        for (int i = 0; i < newPixels.Length; i++)
+        for (var i = 0; i < newPixels.Length; i++)
         {
-            var srcPixel = pixels[i] + (greyScaleStep / 2) / greyScaleStep * greyScaleStep;
+            var srcPixel = pixels[i] + greyScaleStep / 2 / greyScaleStep * greyScaleStep;
             var diff = Math.Abs(srcPixel - newPixels[i]);
             error += diff;
         }
 
         var result = (float)error / newPixels.Length;
-        Console.WriteLine($"Error: {result}");
+        // Console.WriteLine($"Error: {result}");
         return result;
     }
 }
