@@ -13,6 +13,9 @@ class FastBitArray
     
     private int index;
     private int hashCode;
+    public int zeroPatch = 0;
+    public bool isZero = true;
+    
     public FastBitArray()
     {
         index = curIndex;
@@ -36,7 +39,7 @@ class FastBitArray
                     return false;
             }
 
-            return true;
+            return (zeroPatch == fa.zeroPatch);
         }
 
         return false;
@@ -49,6 +52,8 @@ class FastBitArray
         {
             hash = hash * 31 + (int)array[i + index];
         }
+
+        hash = hash * 31 + zeroPatch;
         return hash;
         
     }
@@ -59,7 +64,10 @@ class FastBitArray
         set
         {
             if (value)
+            {
+                isZero = false;
                 array[index + i / sizeof(ulong)] |= (ulong)1 << i % sizeof(ulong);
+            }
             else
                 array[index + i / sizeof(ulong)] &= ~((ulong)1 << i % sizeof(ulong));
             hashCode = 0;

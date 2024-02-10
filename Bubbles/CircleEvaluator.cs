@@ -174,6 +174,16 @@ static class CircleEvaluator
     static Dictionary<FastBitArray, byte> GetCircleIntersectionColors(Image<L8> image, byte[] bytes,
         FastBitArray[] circlesForPixel, int greyScaleStep)
     {
+        int zeroPatch = 1;
+        for (var y = 0; y < image.Width; y++)
+        {
+            for (var x = 0; x < image.Width; x++)
+            {
+                if (circlesForPixel[x + image.Width * y].isZero && circlesForPixel[x + image.Width * y].zeroPatch == 0)
+                    FillZeroPatch(x, y, circlesForPixel, image, zeroPatch++);
+            }
+        }
+        
         var circleValues = new ConcurrentDictionary<FastBitArray, (long numPixels, long sumColor)>();
         Parallel.For(0, image.Height, y =>
         {
@@ -209,6 +219,18 @@ static class CircleEvaluator
             (byte)(((kvp.Value.sumColor / kvp.Value.numPixels) + (greyScaleStep / 2)) / greyScaleStep *
                    greyScaleStep))).ToDictionary();
         return dictionary;
+    }
+
+    private static void FillZeroPatch(int x, int y, FastBitArray[] circlesForPixel, Image<L8> image, int zeroPatch)
+    {
+        var index = x + image.Width * y;
+        if (x < 0 || y < 0 || x >= image.Width || y >= image.Height || !circlesForPixel[index].isZero ||
+            circlesForPixel[index].zeroPatch != 0) return;
+        circlesForPixel[index].zeroPatch = zeroPatch;
+        FillZeroPatch(x + 1, y, circlesForPixel, image, zeroPatch);
+        FillZeroPatch(x - 1, y, circlesForPixel, image, zeroPatch);
+        FillZeroPatch(x, y + 1, circlesForPixel, image, zeroPatch);
+        FillZeroPatch(x, y - 1, circlesForPixel, image, zeroPatch);
     }
 
     static byte[] CreatePixelsFromCircleIntersectionColors(Image<L8> image, Dictionary<FastBitArray, byte> circleAvgValues,
