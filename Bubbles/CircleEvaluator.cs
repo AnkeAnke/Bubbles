@@ -30,7 +30,7 @@ static class CircleEvaluator
         const float kMaxOverlap = 0.3f;
         const float kMinDist = 0.01f;
         const float kMinTotalScore = 15;
-        const float kMaxRadius = 0.05f;
+        const float kMaxRadius = 0.1f;
         const float kMinRadius = 0.01f;
         while (true)
         {

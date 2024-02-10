@@ -47,7 +47,7 @@ public struct Circle
 
     public static Circle Random(float minRadius, float maxRadius)
     {
-        var r = (float)random.NextDouble() * 0.15f;
+        var r = minRadius + (float)random.NextDouble() * (maxRadius - minRadius);
         return new Circle
         {
             radius = r,
