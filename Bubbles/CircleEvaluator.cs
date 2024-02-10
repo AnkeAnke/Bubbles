@@ -86,7 +86,7 @@ internal static class CircleEvaluator
         {
             circles.Clear();
             GenerateCircles(circles, eval);
-            WriteCSV(circles, Path.GetDirectoryName(circlesFile) + $"Init{candidate}.csv");
+            WriteCSV(circles, circlesFile + $"Init{candidate}.csv");
         }
 
         // EvaluateCircles(greyScaleStep, circles, image, pixels, out var outPixels);
