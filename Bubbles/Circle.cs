@@ -1,4 +1,4 @@
-struct Circle
+public struct Circle
 {
     public float x, y, radius;
 }
