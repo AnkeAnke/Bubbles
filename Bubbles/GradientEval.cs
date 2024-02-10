@@ -4,7 +4,7 @@ namespace Bubbles;
 
 public class GradientEval
 {
-    private const int NumSamples = 200;
+    private const int NumSamples = 100;
 
     // private const float MinSaliency = 0.2f;
     // private const float MaxSaliency = 1.0f;
