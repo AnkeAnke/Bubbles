@@ -141,7 +141,13 @@ internal static class CircleEvaluator
             circle.CenterY = new SvgUnit(SvgUnitType.Percentage, 100 * c.y);
             circle.Radius = new SvgUnit(SvgUnitType.Percentage, 100 * c.radius);
             circle.FillOpacity = 0;
-            circle.Stroke = new SvgColourServer(Color.Blue);
+            circle.Stroke = new SvgColourServer(c.color switch
+            {
+                1 => Color.Red,
+                2 => Color.Green,
+                3 => Color.Blue,
+                _ => Color.Yellow,
+            });
             svgDocument.Children.Add(circle);
         }
 

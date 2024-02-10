@@ -167,7 +167,7 @@ public class GeneticAlgorithm
             .Select(_ => new Vector2((float)random.NextDouble(), (float)random.NextDouble())).ToList();
 
         var allCirclesByDistance = Enumerable.Range(0, NumParents).SelectMany(p => _currentGeneration[parents[p]]
-            .Circles.Where(
+            .Circles.Select(c => c with { color = p + 1 }).Where(
                 c =>
                 {
                     var center = new Vector2(c.x, c.y);

@@ -3,6 +3,7 @@ using System.Numerics;
 public struct Circle
 {
     public float x, y, radius;
+    public int color;
     private static readonly Random random = new(42);
 
     float Sqr(float x) => x * x;
@@ -52,7 +53,7 @@ public struct Circle
         {
             radius = r,
             x = r + (float)random.NextDouble() * (1 - 2 * r),
-            y = r + (float)random.NextDouble() * (1 - 2 * r)
+            y = r + (float)random.NextDouble() * (1 - 2 * r),
         };
     }
 
