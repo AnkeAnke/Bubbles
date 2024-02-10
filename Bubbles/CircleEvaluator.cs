@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Bubbles;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using Svg;
 
 static class CircleEvaluator
 {
@@ -22,14 +23,29 @@ static class CircleEvaluator
         var circles = new List<Circle>();
         GradientEval eval = new GradientEval(image.Width, image.Height, pixels);
 
-        while (circles.Count < 500)
+        var stopwatch3 = new Stopwatch();
+        stopwatch3.Start();
+
+        const float kMinRating = 800;
+        const float kMaxOverlap = 0.3f;
+        const float kMinDist = 0.01f;
+        const float kMinTotalScore = 15;
+        const float kMaxRadius = 0.05f;
+        const float kMinRadius = 0.01f;
+        while (true)
         {
-            var c = Circle.Random();
+            var c = Circle.Random(kMinRadius, kMaxRadius);
             var rating = eval.RateCircle(c);
-            var dist = c.MinDistToOtherCircles(circles);
-            rating *= dist;
-            if (rating > 10)
+            var overlap = c.MaxOverlapWithOtherCircles(circles);
+            var dist = c.MinDistFromOtherCircles(circles);
+            if (rating > kMinRating
+                && overlap < kMaxOverlap
+                && dist > kMinDist 
+                && rating * (1.0f - overlap) * dist > kMinTotalScore)
                 circles.Add(c);
+            
+            if (stopwatch3.ElapsedMilliseconds > 5000)
+                break;
         }
         
 
@@ -37,7 +53,7 @@ static class CircleEvaluator
         //circles = circles.Where(c => eval.RateCircle(c) > 1000).ToArray();
         
         Console.WriteLine(circles.Count);
-
+        
         Console.WriteLine("Load files " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
@@ -62,6 +78,8 @@ static class CircleEvaluator
             outImage.Save("output.png");
         }
 
+        WriteSvg(circles, "circles.svg", "output.png");
+
         Console.WriteLine("Write output " + stopwatch.ElapsedMilliseconds);
         stopwatch.Restart();
 
@@ -69,6 +87,35 @@ static class CircleEvaluator
 
         Console.WriteLine("Calculate error " + stopwatch.ElapsedMilliseconds);
         Console.WriteLine("Total time " + stopwatch2.ElapsedMilliseconds);
+    }
+
+    private static void WriteSvg(IEnumerable<Circle> circles, string pathName, string pngPath)
+    {
+        var svgDocument = new SvgDocument();
+        
+        svgDocument.Width = new SvgUnit(SvgUnitType.Pixel, 1024);
+        svgDocument.Height = new SvgUnit(SvgUnitType.Pixel, 1024);
+
+        var imageElement = new SvgImage();
+        imageElement.X = new SvgUnit(SvgUnitType.Percentage, 0);
+        imageElement.Y = new SvgUnit(SvgUnitType.Percentage, 0);
+        imageElement.Width = new SvgUnit(SvgUnitType.Percentage, 100);
+        imageElement.Height = new SvgUnit(SvgUnitType.Percentage, 100);
+        imageElement.Href = Path.GetFullPath(pngPath);
+        svgDocument.Children.Add(imageElement);
+        
+        foreach (var c in circles)
+        {
+            var circle = new SvgCircle();
+            circle.CenterX = new SvgUnit(SvgUnitType.Percentage, 100 * c.x);
+            circle.CenterY = new SvgUnit(SvgUnitType.Percentage, 100 * c.y);
+            circle.Radius = new SvgUnit(SvgUnitType.Percentage, 100 * c.radius);
+            circle.FillOpacity = 0;
+            circle.Stroke = new SvgColourServer(System.Drawing.Color.Blue);
+            svgDocument.Children.Add(circle); 
+        }
+        
+        svgDocument.Write(pathName);
     }
 
     static Circle[] LoadCirclesCSV(string filePath) =>
