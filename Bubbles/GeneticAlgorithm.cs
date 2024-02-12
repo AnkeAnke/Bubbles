@@ -36,7 +36,7 @@ public class GeneticAlgorithm
     public void OutputBestCandidate(string dir)
     {
         var error = CircleEvaluator.EvaluateCircles(_kGreyScaleStep, _currentGeneration[0].Circles.ToList(), image,
-            pixels, out var outPixels, out var _);
+            pixels, out var outPixels, out var _, out _);
         Console.WriteLine($"Best error: {error}");
         using (var outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
         {
@@ -74,7 +74,7 @@ public class GeneticAlgorithm
                 Circles = allCircles[c].ToArray(), ID = MaxID++,
                 Fitness = 1.0f /
                           CircleEvaluator.EvaluateCircles(kGreyScaleStep, allCircles[c], image,
-                              pixels, out var outPixels, out var numSegments),
+                              pixels, out var outPixels, out var numSegments, out _),
                 NumSegments = numSegments
             };
         }
@@ -157,7 +157,7 @@ public class GeneticAlgorithm
             ID = MaxID++,
             Fitness = 1.0f /
                       CircleEvaluator.EvaluateCircles(_kGreyScaleStep, allCircles.ToList(), image,
-                          pixels, out var outPixels, out var _),
+                          pixels, out var outPixels, out var _, out _),
             NumParents = numParents
         };
     }
@@ -219,7 +219,7 @@ public class GeneticAlgorithm
             ID = MaxID++,
             Fitness = 1.0f /
                       CircleEvaluator.EvaluateCircles(_kGreyScaleStep, allCircles.ToList(), image,
-                          pixels, out var outPixels, out var numSegments),
+                          pixels, out var outPixels, out var numSegments, out _),
             NumParents = numParents,
             NumSegments = numSegments
         };

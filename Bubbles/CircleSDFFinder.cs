@@ -78,14 +78,14 @@ public class CircleSDFFinder
 
         Console.WriteLine($"circles {circles.Count} {circles[0].x}, {circles[0].y}, {circles[0].radius}");
         
-        CircleEvaluator.EvaluateCircles(greyScaleStep, circles, image, pixels, out var outPixels, out _);
+        CircleEvaluator.EvaluateCircles(greyScaleStep, circles, image, pixels, out var outPixels, out _, out var circleIntersectionInfos);
 
         using (var outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
         {
             outImage.Save("sdf_output.png");
         }
 
-        CircleEvaluator.WriteSvg(circles, "sdf_output.svg", "sdf_output.png");
+        CircleEvaluator.WriteSvg(circles, "sdf_output.svg", "sdf_output.png", circleIntersectionInfos, greyScaleStep);
 
     }
 
