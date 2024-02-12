@@ -42,7 +42,7 @@ internal static class CircleEvaluator
         // for (var candidate = 0; candidate < 50; ++candidate)
         // {
         //     circles.Clear();
-        GenerateCircles(circles, eval);
+        GenerateCircles(circles, eval, CircleGenSettings.Default);
         //     WriteCSV(circles, Path.GetDirectoryName(circlesFile) + $"Init{candidate}.csv");
         // }
 
@@ -86,7 +86,7 @@ internal static class CircleEvaluator
         for (var candidate = 0; candidate < numFiles; ++candidate)
         {
             circles.Clear();
-            GenerateCircles(circles, eval);
+            GenerateCircles(circles, eval, CircleGenSettings.Default);
             WriteCSV(circles, circlesFile + $"Init{candidate}.csv");
         }
 
@@ -128,28 +128,22 @@ internal static class CircleEvaluator
         // Console.WriteLine("Calculate error " + stopwatch.ElapsedMilliseconds);
         numSegments = circleAvgValues.Count();
         circleIntersectionInfos = circleAvgValues.Values;
-        return error + numSegments / 500.0f;
+        return numSegments / 500.0f + error;
     }
 
-    private static void GenerateCircles(List<Circle> circles, GradientEval eval)
+    public static void GenerateCircles(List<Circle> circles, GradientEval eval,
+        CircleGenSettings settings, int numCircles = 600)
     {
-        const float kMinRating = 8;
-        const float kMaxOverlap = 0.3f;
-        const float kMinDist = 0.01f;
-        const float kMinTotalScore = 0.15f;
-        const float kMaxRadius = 0.1f;
-        const float kMinRadius = 0.01f;
-
-        while (circles.Count < 600)
+        while (circles.Count < numCircles)
         {
-            var c = Circle.Random(kMinRadius, kMaxRadius);
+            var c = Circle.Random(settings.kMinRadius, settings.kMaxRadius);
             var rating = eval.RateCircle(c);
             var overlap = c.MaxOverlapWithOtherCircles(circles);
             var dist = c.MinDistFromOtherCircles(circles);
-            if (rating > kMinRating
-                && overlap < kMaxOverlap
-                && dist > kMinDist
-                && rating * (1.0f - overlap) * dist > kMinTotalScore)
+            if (rating > settings.kMinRating
+                && overlap < settings.kMaxOverlap
+                && dist > settings.kMinDist
+                && rating * (1.0f - overlap) * dist > settings.kMinTotalScore)
                 circles.Add(c);
         }
     }
@@ -204,6 +198,63 @@ internal static class CircleEvaluator
                 }
             }
         }
+        svgDocument.Write(pathName);
+    }
+
+    public static void WriteSvg(IEnumerable<Circle> circles, IEnumerable<Vector2> points, string pathName)
+    {
+        var svgDocument = new SvgDocument();
+
+        svgDocument.Width = new SvgUnit(SvgUnitType.Pixel, 1024);
+        svgDocument.Height = new SvgUnit(SvgUnitType.Pixel, 1024);
+
+        // var imageElement = new SvgImage();
+        // imageElement.X = new SvgUnit(SvgUnitType.Percentage, 0);
+        // imageElement.Y = new SvgUnit(SvgUnitType.Percentage, 0);
+        // imageElement.Width = new SvgUnit(SvgUnitType.Percentage, 100);
+        // imageElement.Height = new SvgUnit(SvgUnitType.Percentage, 100);
+        // imageElement.Href = Path.GetFullPath(pngPath);
+        // svgDocument.Children.Add(imageElement);
+
+        var bg = new SvgRectangle();
+        bg.X = 0;
+        bg.Y = 0;
+        bg.Width = svgDocument.Width;
+        bg.Height = svgDocument.Height;
+        bg.Fill = new SvgColourServer(Color.White);
+        bg.FillOpacity = 1;
+        svgDocument.Children.Add(bg);
+
+        foreach (var c in circles)
+        {
+            var circle = new SvgCircle();
+            circle.CenterX = new SvgUnit(SvgUnitType.Percentage, 100 * c.x);
+            circle.CenterY = new SvgUnit(SvgUnitType.Percentage, 100 * c.y);
+            circle.Radius = new SvgUnit(SvgUnitType.Percentage, 100 * c.radius);
+            circle.FillOpacity = 0;
+            circle.Stroke = new SvgColourServer(c.color switch
+            {
+                1 => Color.Red,
+                2 => Color.Green,
+                3 => Color.Blue,
+                _ => Color.Yellow
+            });
+            svgDocument.Children.Add(circle);
+        }
+
+        foreach (var p in points)
+        {
+            var point = new SvgCircle();
+            point.CenterX = new SvgUnit(SvgUnitType.Percentage, 100 * p.X);
+            point.CenterY = new SvgUnit(SvgUnitType.Percentage, 100 * p.Y);
+            point.Radius = new SvgUnit(SvgUnitType.Percentage,
+                100 * CirclePruning.MaxDistanceEquality);
+            point.FillOpacity = 1.0f;
+            point.Fill = new SvgColourServer(Color.Black);
+            point.Stroke = new SvgColourServer(Color.Black);
+            svgDocument.Children.Add(point);
+        }
+
         svgDocument.Write(pathName);
     }
 
@@ -348,8 +399,45 @@ internal static class CircleEvaluator
         // Console.WriteLine($"Error: {result}");
         return result;
     }
-}
 
+
+    public static void OutputCirclesAndError(List<Circle> circles, string dir,
+        Image<L8> image,
+        byte[] pixels,
+        int kGreyScaleSteps)
+    {
+        var error = EvaluateCircles(kGreyScaleSteps, circles, image,
+            pixels, out var outPixels, out var _);
+        Console.WriteLine($"Best error: {error}");
+        using (var outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
+        {
+            outImage.Save(dir + "output.png");
+        }
+
+        WriteSvg(circles, dir + "circles.svg", dir + "output.png");
+        Console.WriteLine("Output done");
+    }
+
+    public struct CircleGenSettings
+    {
+        public float kMinRating;
+        public float kMaxOverlap;
+        public float kMinDist;
+        public float kMinTotalScore;
+        public float kMaxRadius;
+        public float kMinRadius;
+
+        public static readonly CircleGenSettings Default = new()
+        {
+            kMinRating = 8,
+            kMaxOverlap = 0.3f,
+            kMinDist = 0.01f,
+            kMinTotalScore = 0.15f,
+            kMaxRadius = 0.1f,
+            kMinRadius = 0.01f
+        };
+    }
+}
 
 // Scratch
 
