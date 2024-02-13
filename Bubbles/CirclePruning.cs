@@ -9,19 +9,27 @@ public static class CirclePruning
     private static readonly float MinDistance3d = 0.02f;
     public static readonly float MaxDistanceEquality = 0.0012f;
     private static readonly float MinDistanceIntersection = 0.005f;
-
-    private static readonly Random random = new(42);
-    private static readonly float MinDistanceSegments = 0.001f;
+    private static readonly float MinDistanceSegments = 0.005f;
     private static readonly float MinCircleRadius = 0.005f;
 
-    private static readonly float MaxCircleRadius = 0.2f;
+    private static readonly float MaxCircleRadius = 0.1f;
 
-    private static readonly float WeightRadius = 5.0f;
-    // private static readonly int NumSizeBuckets = 5;
-    // private static readonly float BucketWeight = 2.0f;
+    // private static readonly float WeightRadius = 10.0f;
 
-    public static List<Circle> PruneRatedCircles(List<RatedCircle> circles, out List<Vector2> intersectionPoints)
+    private static readonly float MinRating = 4.0f;
+    private static readonly int NumSizeBuckets = 10;
+    private static readonly float BucketWeight = 5.0f;
+
+    private static readonly Random random = new(42);
+
+    public static List<Circle> PruneRatedCircles(List<RatedCircle> circles, bool wriggle,
+        out List<Vector2> intersectionPoints)
     {
+        if (wriggle)
+            return PruneCircles(
+                circles.Select(c => c with { Rating = c.Rating + (float)random.NextDouble() * 1.0f })
+                    .OrderDescending(new RatedCircle.FitnessComparer()).Select(rc => rc.Circle).ToList(),
+                out intersectionPoints);
         return PruneCircles(
             circles.OrderDescending(new RatedCircle.FitnessComparer()).Select(rc => rc.Circle).ToList(),
             out intersectionPoints);
@@ -90,6 +98,11 @@ public static class CirclePruning
             // Look at new intersections, if any.
             var numIntersections = candidateCircle.AddIntersections(currentCircles[c], newIntersections);
             if (numIntersections > 0)
+            {
+                var radiusdist = currentCircles[c].radius / candidateCircle.radius;
+                if (radiusdist < 1.0f) radiusdist = 1.0f / radiusdist;
+                if (radiusdist < 1.05f) return false;
+
                 for (var i = newIntersections.Count() - numIntersections; i < newIntersections.Count(); ++i)
                 {
                     var newIntersection = newIntersections[i];
@@ -103,6 +116,7 @@ public static class CirclePruning
                             return false;
                     }
                 }
+            }
         }
 
         currentIntersections.AddRange(newIntersections);
@@ -128,12 +142,14 @@ public static class CirclePruning
             var c = Circle.Random(MinCircleRadius, MaxCircleRadius);
             var pureRating = eval.RateCircle(c);
             var rating = pureRating +
-                         // (int)((c.radius - MinCircleRadius) * NumSizeBuckets / (MaxCircleRadius - MinCircleRadius)) *
-                         // BucketWeight;
-                         +c.radius * WeightRadius;
-            if (pureRating > 5)
+                         (int)((c.radius - MinCircleRadius) * NumSizeBuckets / (MaxCircleRadius - MinCircleRadius)) *
+                         BucketWeight;
+            // +c.radius * WeightRadius;
+            if (pureRating > MinRating)
                 circles.Add(new RatedCircle { Circle = c, Rating = rating });
         }
+
+        // eval.OutputStats();
 
         return circles;
     }
@@ -153,7 +169,7 @@ public static class CirclePruning
                         (float)random.NextDouble()),
                     color = 1
                 });
-                x += (float)(random.NextDouble() * 0.1f);
+                x += (float)random.NextDouble() * 0.1f;
             }
         }
 

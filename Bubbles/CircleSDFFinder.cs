@@ -79,6 +79,8 @@ public class CircleSDFFinder
         Console.WriteLine($"circles {circles.Count} {circles[0].x}, {circles[0].y}, {circles[0].radius}");
         
         CircleEvaluator.EvaluateCircles(greyScaleStep, circles, image, pixels, out var outPixels, out _, out var circleIntersectionInfos);
+        CircleEvaluator.EvaluateCircles(greyScaleStep, circles, image, pixels, out var outPixels, out _,
+            out var circleIntersectionInfos, true);
 
         using (var outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
         {

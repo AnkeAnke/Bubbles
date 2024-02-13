@@ -106,7 +106,8 @@ internal static class CircleEvaluator
     }
 
     public static float EvaluateCircles(int greyScaleStep, List<Circle> circles, Image<L8> image,
-        byte[] pixels, out byte[] outPixels, out int numSegments, out IEnumerable<CircleIntersectionInfo> circleIntersectionInfos)
+        byte[] pixels, out byte[] outPixels, out int numSegments,
+        out IEnumerable<CircleIntersectionInfo> circleIntersectionInfos, bool optimalNumberPlacement = false)
     {
         var stopwatch = new Stopwatch();
         var circlesForPixel = GetCirclesForEachPixel(circles.ToArray(), image);
@@ -127,7 +128,63 @@ internal static class CircleEvaluator
         var error = CalculateError(outPixels, pixels, greyScaleStep);
         // Console.WriteLine("Calculate error " + stopwatch.ElapsedMilliseconds);
         numSegments = circleAvgValues.Count();
-        circleIntersectionInfos = circleAvgValues.Values;
+        if (!optimalNumberPlacement)
+        {
+            circleIntersectionInfos = circleAvgValues.Values;
+        }
+        else
+        {
+            stopwatch.Restart();
+            // Better number positions
+            var borders = DrawSegmentBorders(image, outPixels, circlesForPixel);
+
+            var distanceField = new float[image.Width, image.Height];
+            Parallel.For(0, image.Height, y =>
+            {
+                for (var x = 0; x < image.Width; x++)
+                    distanceField[x, y] = CircleSDFFinder.ComputeDistance(x, y, borders, image.Width, image.Height);
+            });
+
+            var pixelCandidates = new (float Distance, int Index, FastBitArray Bits)[image.Width * image.Height];
+            for (var y = 0; y < image.Height; ++y)
+            for (var x = 0; x < image.Width; ++x)
+            {
+                var index = x + image.Width * y; // Flip IMG!
+                pixelCandidates[index] = (Distance: distanceField[x, y], Index: index, Bits: circlesForPixel[index]);
+            }
+
+            var minDistance = (float)image.Width * 0.003f; // About 2 pixels for the wave.
+
+            var potentialSegmentPositions = pixelCandidates
+                .Where(pixel => pixel.Distance > minDistance).OrderByDescending(pixel => pixel.Distance)
+                .ToList();
+            var bestNumberPositions = new Dictionary<FastBitArray, int>();
+            Console.WriteLine($"Position candidates: {potentialSegmentPositions.Count()}");
+
+            foreach (var pixel in potentialSegmentPositions)
+            {
+                if (bestNumberPositions.ContainsKey(pixel.Bits)) continue;
+                bestNumberPositions.Add(pixel.Bits, pixel.Index);
+            }
+
+            Console.WriteLine($"Actual positions: {bestNumberPositions.Count()}");
+
+            circleIntersectionInfos = circleAvgValues.Select(keyValue =>
+            {
+                var hasGoodPosition = bestNumberPositions.TryGetValue(keyValue.Key, out var bestIdx);
+                return keyValue.Value with
+                    {
+                        center = hasGoodPosition
+                            ? new Vector2((float)(bestIdx % image.Width) / image.Width,
+                                (float)(bestIdx / image.Width) / image.Height)
+                            : -Vector2.One
+                    }
+                    ;
+            });
+
+            Console.WriteLine("Optimal number placement " + stopwatch.ElapsedMilliseconds);
+        }
+
         return numSegments / 500.0f + error;
     }
 
@@ -148,7 +205,8 @@ internal static class CircleEvaluator
         }
     }
 
-    public static void WriteSvg(IEnumerable<Circle> circles, string pathName, string pngPath, IEnumerable<CircleIntersectionInfo> circleIntersectionInfos = null, int greyScaleStep = 0)
+    public static void WriteSvg(IEnumerable<Circle> circles, string pathName, string pngPath,
+        IEnumerable<CircleIntersectionInfo> circleIntersectionInfos = null, int greyScaleStep = 0)
     {
         var svgDocument = new SvgDocument();
 
@@ -175,29 +233,32 @@ internal static class CircleEvaluator
                 1 => Color.Red,
                 2 => Color.Green,
                 3 => Color.Blue,
-                _ => Color.Yellow
+                _ => Color.Black
             });
             svgDocument.Children.Add(circle);
         }
 
         if (circleIntersectionInfos != null)
-        {
             foreach (var cii in circleIntersectionInfos)
-            {
-                if (cii.color != 255 && cii.size > 10)
+                if (cii.color != 255 && cii.size > 10 && cii.center.X >= 0)
                 {
                     var text = new SvgText();
-                    text.X = new SvgUnitCollection() { new SvgUnit(SvgUnitType.Pixel, cii.center.X * 2) };
-                    text.Y = new SvgUnitCollection() { new SvgUnit(SvgUnitType.Pixel, (cii.center.Y + 1) * 2) };
+                    text.X = new SvgUnitCollection
+                    {
+                        new(SvgUnitType.Percentage, 100 * cii.center.X)
+                    };
+                    text.Y = new SvgUnitCollection
+                    {
+                        new(SvgUnitType.Percentage, 100 * (cii.center.Y + 0.002f))
+                    };
                     text.TextAnchor = SvgTextAnchor.Middle;
                     text.FontSize = new SvgUnit(SvgUnitType.Percentage, 50);
-                    text.Text = ((int)(cii.color / greyScaleStep)).ToString();
-                    
-                    text.Fill = new SvgColourServer(System.Drawing.Color.DimGray);
+                    text.Text = (cii.color / greyScaleStep).ToString();
+
+                    text.Fill = new SvgColourServer(Color.DimGray);
                     svgDocument.Children.Add(text);
                 }
-            }
-        }
+
         svgDocument.Write(pathName);
     }
 
@@ -313,14 +374,8 @@ internal static class CircleEvaluator
         }
     }
 
-    public struct CircleIntersectionInfo
-    {
-        public byte color;
-        public Vector2 center;
-        public float size;
-    }
-    
-    private static Dictionary<FastBitArray, CircleIntersectionInfo> GetCircleIntersectionColors(Image<L8> image, byte[] bytes,
+    private static Dictionary<FastBitArray, CircleIntersectionInfo> GetCircleIntersectionColors(Image<L8> image,
+        byte[] bytes,
         FastBitArray[] circlesForPixel, int greyScaleStep)
     {
         var zeroPatch = 1;
@@ -329,7 +384,8 @@ internal static class CircleEvaluator
             if (circlesForPixel[x + image.Width * y].isZero && circlesForPixel[x + image.Width * y].zeroPatch == 0)
                 FillZeroPatch(x, y, circlesForPixel, image, zeroPatch++);
 
-        var circleValues = new ConcurrentDictionary<FastBitArray, (long numPixels, long sumColor)>();
+        var circleValues =
+            new ConcurrentDictionary<FastBitArray, (long numPixels, long sumColor, Vector2 minPos, Vector2 maxPos)>();
         Parallel.For(0, image.Height, y =>
         {
             for (var x = 0; x < image.Width; x++)
@@ -338,20 +394,21 @@ internal static class CircleEvaluator
                 var v = new Vector2(x, y);
                 circleValues.AddOrUpdate(circlesForPixel[x + image.Width * y], (1, color, v, v),
                     (_, tuple) => (
-                        tuple.numPixels + 1, 
+                        tuple.numPixels + 1,
                         tuple.sumColor + color,
                         Vector2.Min(tuple.minPos, v),
                         Vector2.Max(tuple.maxPos, v)));
             }
         });
 
-        var dictionary = circleValues.Select(kvp => 
+        var dictionary = circleValues.Select(kvp =>
             (
-                kvp.Key, 
-                new CircleIntersectionInfo {
+                kvp.Key,
+                new CircleIntersectionInfo
+                {
                     color = (byte)((kvp.Value.sumColor / kvp.Value.numPixels + greyScaleStep / 2) / greyScaleStep *
-                           greyScaleStep), 
-                    center = (kvp.Value.minPos + kvp.Value.maxPos)*0.5f,
+                                   greyScaleStep),
+                    center = (kvp.Value.minPos + kvp.Value.maxPos) / image.Width * 0.5f,
                     size = (kvp.Value.maxPos.X - kvp.Value.minPos.X) * (kvp.Value.maxPos.Y - kvp.Value.minPos.Y)
                 }
             )
@@ -369,6 +426,59 @@ internal static class CircleEvaluator
         FillZeroPatch(x - 1, y, circlesForPixel, image, zeroPatch);
         FillZeroPatch(x, y + 1, circlesForPixel, image, zeroPatch);
         FillZeroPatch(x, y - 1, circlesForPixel, image, zeroPatch);
+    }
+
+    private static byte[] DrawSegmentBorders(Image<L8> image, byte[] outPixels, FastBitArray[] fastBitArrays)
+    {
+        int Index(int x, int y)
+        {
+            return x + y * image.Width;
+        }
+
+        var borders = new byte[image.Width * image.Height];
+        for (var bX = 0; bX < image.Width; ++bX)
+        {
+            borders[Index(bX, 0)] = 255;
+            borders[Index(bX, image.Height - 1)] = 255;
+        }
+
+        for (var y = 1; y < image.Height - 1; ++y)
+        {
+            borders[Index(0, y)] = 255;
+            borders[Index(image.Width - 1, y)] = 255;
+
+            for (var x = 1; x < image.Width - 1; ++x)
+            {
+                var center = Index(x, y);
+                // Ignore white cells, they don't get a number anyways.
+                if (outPixels[center] == 255)
+                {
+                    borders[center] = 255;
+                    continue;
+                }
+
+                var neighbors = new[]
+                {
+                    Index(x - 1, y),
+                    Index(x + 1, y),
+                    Index(x, y - 1),
+                    Index(x, y + 1)
+                    // Index(Math.Max(x - 1, 0), y),
+                    // Index(Math.Min(x + 1, image.Width - 1), y),
+                    // Index(x, Math.Max(y - 1, 0)),
+                    // Index(x, Math.Min(y + 1, image.Height - 1))
+                };
+                var centerBits = fastBitArrays[center];
+                foreach (var neighbor in neighbors)
+                    if (!fastBitArrays[neighbor].Equals(centerBits))
+                    {
+                        borders[center] = 255;
+                        break;
+                    }
+            }
+        }
+
+        return borders;
     }
 
     private static byte[] CreatePixelsFromCircleIntersectionColors(Image<L8> image,
@@ -404,10 +514,10 @@ internal static class CircleEvaluator
     public static void OutputCirclesAndError(List<Circle> circles, string dir,
         Image<L8> image,
         byte[] pixels,
-        int kGreyScaleSteps)
+        int kGreyScaleSteps, out float error)
     {
-        var error = EvaluateCircles(kGreyScaleSteps, circles, image,
-            pixels, out var outPixels, out var _);
+        error = EvaluateCircles(kGreyScaleSteps, circles, image,
+            pixels, out var outPixels, out var _, out var _);
         Console.WriteLine($"Best error: {error}");
         using (var outImage = Image.LoadPixelData<L8>(outPixels, image.Width, image.Height))
         {
@@ -416,6 +526,13 @@ internal static class CircleEvaluator
 
         WriteSvg(circles, dir + "circles.svg", dir + "output.png");
         Console.WriteLine("Output done");
+    }
+
+    public struct CircleIntersectionInfo
+    {
+        public byte color;
+        public Vector2 center;
+        public float size;
     }
 
     public struct CircleGenSettings
